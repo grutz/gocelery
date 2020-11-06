@@ -37,26 +37,49 @@ func NewRedisCeleryBroker(uri string) *RedisCeleryBroker {
 	}
 }
 
-// SendCeleryMessage sends CeleryMessage to redis queue
+// SendCeleryMessage sends CeleryMessage to redis queue with the default queueName
 func (cb *RedisCeleryBroker) SendCeleryMessage(message *CeleryMessage) error {
+	return cb.sendMessage(message, cb.QueueName)
+}
+
+// SendCeleryMessage sends CeleryMessage to redis queue with a defined queueName
+func (cb *RedisCeleryBroker) SendCeleryMessageWithQueue(message *CeleryMessage, queueName string) error {
+	return cb.sendMessage(message, queueName)
+}
+
+// SendCeleryMessage sends CeleryMessage to redis queue
+func (cb *RedisCeleryBroker) sendMessage(message *CeleryMessage, queueName string) error {
+	if queueName == "" {
+		queueName = cb.QueueName
+	}
 	jsonBytes, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
 	conn := cb.Get()
 	defer conn.Close()
-	_, err = conn.Do("LPUSH", cb.QueueName, jsonBytes)
+	_, err = conn.Do("LPUSH", queueName, jsonBytes)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-// GetCeleryMessage retrieves celery message from redis queue
+// GetCeleryMessage retrieves celery message from redis queue with the default queueName
 func (cb *RedisCeleryBroker) GetCeleryMessage() (*CeleryMessage, error) {
+	return cb.getMessage(cb.QueueName)
+}
+
+// GetCeleryMessage retrieves celery message from redis queue with a defined queueName
+func (cb *RedisCeleryBroker) GetCeleryMessageWithQueue(queueName string) (*CeleryMessage, error) {
+	return cb.getMessage(queueName)
+}
+
+// GetCeleryMessage retrieves celery message from redis queue
+func (cb *RedisCeleryBroker) getMessage(queueName string) (*CeleryMessage, error) {
 	conn := cb.Get()
 	defer conn.Close()
-	messageJSON, err := conn.Do("BRPOP", cb.QueueName, "1")
+	messageJSON, err := conn.Do("BRPOP", queueName, "1")
 	if err != nil {
 		return nil, err
 	}
@@ -74,9 +97,19 @@ func (cb *RedisCeleryBroker) GetCeleryMessage() (*CeleryMessage, error) {
 	return &message, nil
 }
 
-// GetTaskMessage retrieves task message from redis queue
+// GetTaskMessage retrieves task message from redis queue with the default queueName
 func (cb *RedisCeleryBroker) GetTaskMessage() (*TaskMessage, error) {
-	celeryMessage, err := cb.GetCeleryMessage()
+	return cb.getTaskMessage(cb.QueueName)
+}
+
+// GetTaskMessage retrieves task message from redis queue with a defined queueName
+func (cb *RedisCeleryBroker) GetTaskMessageWithQueue(queueName string) (*TaskMessage, error) {
+	return cb.getTaskMessage(queueName)
+}
+
+// GetTaskMessage retrieves task message from redis queue
+func (cb *RedisCeleryBroker) getTaskMessage(queueName string) (*TaskMessage, error) {
+	celeryMessage, err := cb.getMessage(queueName)
 	if err != nil {
 		return nil, err
 	}

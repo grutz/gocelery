@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+const (
+	uniqueQueueName string = "unique_celery"
+)
+
 func makeCeleryMessage() (*CeleryMessage, error) {
 	taskMessage := getTaskMessage("add")
 	taskMessage.Args = []interface{}{rand.Intn(10), rand.Intn(10)}
@@ -26,16 +30,29 @@ func makeCeleryMessage() (*CeleryMessage, error) {
 // TestBrokerRedisSend is Redis specific test that sets CeleryMessage to queue
 func TestBrokerRedisSend(t *testing.T) {
 	testCases := []struct {
-		name   string
-		broker *RedisCeleryBroker
+		name               string
+		broker             *RedisCeleryBroker
+		useUniqueQueueName bool
 	}{
 		{
-			name:   "send task to redis broker",
-			broker: redisBroker,
+			name:               "send task to redis broker, default queueName",
+			broker:             redisBroker,
+			useUniqueQueueName: false,
 		},
 		{
-			name:   "send task to redis broker with connection",
-			broker: redisBrokerWithConn,
+			name:               "send task to redis broker, unique queueName",
+			broker:             redisBroker,
+			useUniqueQueueName: true,
+		},
+		{
+			name:               "send task to redis broker with connection, default queueName",
+			broker:             redisBrokerWithConn,
+			useUniqueQueueName: false,
+		},
+		{
+			name:               "send task to redis broker with connection, unique queueName",
+			broker:             redisBrokerWithConn,
+			useUniqueQueueName: true,
 		},
 	}
 	for _, tc := range testCases {
@@ -44,7 +61,13 @@ func TestBrokerRedisSend(t *testing.T) {
 			t.Errorf("test '%s': failed to construct celery message: %v", tc.name, err)
 			continue
 		}
-		err = tc.broker.SendCeleryMessage(celeryMessage)
+		queueName := tc.broker.QueueName
+		if tc.useUniqueQueueName {
+			queueName := uniqueQueueName
+			err = tc.broker.SendCeleryMessageWithQueue(celeryMessage, queueName)
+		} else {
+			err = tc.broker.SendCeleryMessage(celeryMessage)
+		}
 		if err != nil {
 			t.Errorf("test '%s': failed to send celery message to broker: %v", tc.name, err)
 			releaseCeleryMessage(celeryMessage)
@@ -52,14 +75,14 @@ func TestBrokerRedisSend(t *testing.T) {
 		}
 		conn := tc.broker.Get()
 		defer conn.Close()
-		messageJSON, err := conn.Do("BRPOP", tc.broker.QueueName, "1")
+		messageJSON, err := conn.Do("BRPOP", queueName, "1")
 		if err != nil || messageJSON == nil {
 			t.Errorf("test '%s': failed to get celery message from broker: %v", tc.name, err)
 			releaseCeleryMessage(celeryMessage)
 			continue
 		}
 		messageList := messageJSON.([]interface{})
-		if string(messageList[0].([]byte)) != "celery" {
+		if string(messageList[0].([]byte)) != queueName {
 			t.Errorf("test '%s': non celery message received", tc.name)
 			releaseCeleryMessage(celeryMessage)
 			continue
@@ -80,16 +103,29 @@ func TestBrokerRedisSend(t *testing.T) {
 // TestBrokerRedisGet is Redis specific test that gets CeleryMessage from queue
 func TestBrokerRedisGet(t *testing.T) {
 	testCases := []struct {
-		name   string
-		broker *RedisCeleryBroker
+		name               string
+		broker             *RedisCeleryBroker
+		useUniqueQueueName bool
 	}{
 		{
-			name:   "get task from redis broker",
-			broker: redisBroker,
+			name:               "get task from redis broker, default queueName",
+			broker:             redisBroker,
+			useUniqueQueueName: false,
 		},
 		{
-			name:   "get task from redis broker with connection",
-			broker: redisBrokerWithConn,
+			name:               "get task from redis broker, unique queueName",
+			broker:             redisBroker,
+			useUniqueQueueName: true,
+		},
+		{
+			name:               "get task from redis broker with connection, default QueueName",
+			broker:             redisBrokerWithConn,
+			useUniqueQueueName: false,
+		},
+		{
+			name:               "get task from redis broker with connection, unique QueueName",
+			broker:             redisBrokerWithConn,
+			useUniqueQueueName: true,
 		},
 	}
 	for _, tc := range testCases {
@@ -106,13 +142,23 @@ func TestBrokerRedisGet(t *testing.T) {
 		}
 		conn := tc.broker.Get()
 		defer conn.Close()
-		_, err = conn.Do("LPUSH", tc.broker.QueueName, jsonBytes)
+		queueName := tc.broker.QueueName
+		if tc.useUniqueQueueName {
+			queueName = uniqueQueueName
+		}
+		_, err = conn.Do("LPUSH", queueName, jsonBytes)
 		if err != nil {
 			t.Errorf("test '%s': failed to push celery message to redis: %v", tc.name, err)
 			releaseCeleryMessage(celeryMessage)
 			continue
 		}
-		message, err := tc.broker.GetCeleryMessage()
+		var message *CeleryMessage
+		if tc.useUniqueQueueName {
+			message, err = tc.broker.GetCeleryMessageWithQueue(queueName)
+		} else {
+			message, err = tc.broker.GetCeleryMessage()
+		}
+
 		if err != nil {
 			t.Errorf("test '%s': failed to get celery message from broker: %v", tc.name, err)
 			releaseCeleryMessage(celeryMessage)
@@ -128,20 +174,39 @@ func TestBrokerRedisGet(t *testing.T) {
 // TestBrokerSendGet tests set/get features for all brokers
 func TestBrokerSendGet(t *testing.T) {
 	testCases := []struct {
-		name   string
-		broker CeleryBroker
+		name               string
+		broker             CeleryBroker
+		useUniqueQueueName bool
 	}{
 		{
-			name:   "send/get task for redis broker",
-			broker: redisBroker,
+			name:               "send/get task for redis broker, default queueName",
+			broker:             redisBroker,
+			useUniqueQueueName: false,
 		},
 		{
-			name:   "send/get task for redis broker with connection",
-			broker: redisBrokerWithConn,
+			name:               "send/get task for redis broker, unique queueName",
+			broker:             redisBroker,
+			useUniqueQueueName: true,
 		},
 		{
-			name:   "send/get task for amqp broker",
-			broker: amqpBroker,
+			name:               "send/get task for redis broker with connection, default queueName",
+			broker:             redisBrokerWithConn,
+			useUniqueQueueName: false,
+		},
+		{
+			name:               "send/get task for redis broker with connection, unique queueName",
+			broker:             redisBrokerWithConn,
+			useUniqueQueueName: true,
+		},
+		{
+			name:               "send/get task for amqp broker, default queueName",
+			broker:             amqpBroker,
+			useUniqueQueueName: false,
+		},
+		{
+			name:               "send/get task for amqp broker, unique queueName",
+			broker:             amqpBroker,
+			useUniqueQueueName: true,
 		},
 	}
 	for _, tc := range testCases {
@@ -150,7 +215,14 @@ func TestBrokerSendGet(t *testing.T) {
 			t.Errorf("test '%s': failed to construct celery message: %v", tc.name, err)
 			continue
 		}
-		err = tc.broker.SendCeleryMessage(celeryMessage)
+		queueName := "celery"
+		if tc.useUniqueQueueName {
+			queueName = uniqueQueueName
+			err = tc.broker.SendCeleryMessageWithQueue(celeryMessage, queueName)
+		} else {
+			err = tc.broker.SendCeleryMessage(celeryMessage)
+		}
+
 		if err != nil {
 			t.Errorf("test '%s': failed to send celery message to broker: %v", tc.name, err)
 			releaseCeleryMessage(celeryMessage)

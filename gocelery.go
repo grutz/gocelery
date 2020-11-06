@@ -20,6 +20,7 @@ type CeleryClient struct {
 // CeleryBroker is interface for celery broker database
 type CeleryBroker interface {
 	SendCeleryMessage(*CeleryMessage) error
+	SendCeleryMessageWithQueue(*CeleryMessage, string) error
 	GetTaskMessage() (*TaskMessage, error) // must be non-blocking
 }
 
@@ -67,17 +68,31 @@ func (cc *CeleryClient) WaitForStopWorker() {
 func (cc *CeleryClient) Delay(task string, args ...interface{}) (*AsyncResult, error) {
 	celeryTask := getTaskMessage(task)
 	celeryTask.Args = args
-	return cc.delay(celeryTask)
+	return cc.delay(celeryTask, "")
 }
 
 // DelayKwargs gets asynchronous results with argument map
 func (cc *CeleryClient) DelayKwargs(task string, args map[string]interface{}) (*AsyncResult, error) {
 	celeryTask := getTaskMessage(task)
 	celeryTask.Kwargs = args
-	return cc.delay(celeryTask)
+	return cc.delay(celeryTask, "")
 }
 
-func (cc *CeleryClient) delay(task *TaskMessage) (*AsyncResult, error) {
+// Delay gets asynchronous result and a defined queueName
+func (cc *CeleryClient) DelayWithQueue(task string, queueName string, args ...interface{}) (*AsyncResult, error) {
+	celeryTask := getTaskMessage(task)
+	celeryTask.Args = args
+	return cc.delay(celeryTask, queueName)
+}
+
+// DelayKwargs gets asynchronous results with argument map and a defined queueName
+func (cc *CeleryClient) DelayKwargsWithQueue(task string, queueName string, args map[string]interface{}) (*AsyncResult, error) {
+	celeryTask := getTaskMessage(task)
+	celeryTask.Kwargs = args
+	return cc.delay(celeryTask, queueName)
+}
+
+func (cc *CeleryClient) delay(task *TaskMessage, queueName string) (*AsyncResult, error) {
 	defer releaseTaskMessage(task)
 	encodedMessage, err := task.Encode()
 	if err != nil {
@@ -85,7 +100,11 @@ func (cc *CeleryClient) delay(task *TaskMessage) (*AsyncResult, error) {
 	}
 	celeryMessage := getCeleryMessage(encodedMessage)
 	defer releaseCeleryMessage(celeryMessage)
-	err = cc.broker.SendCeleryMessage(celeryMessage)
+	if queueName != "" {
+		err = cc.broker.SendCeleryMessage(celeryMessage)
+	} else {
+		err = cc.broker.SendCeleryMessageWithQueue(celeryMessage, queueName)
+	}
 	if err != nil {
 		return nil, err
 	}

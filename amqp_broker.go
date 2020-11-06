@@ -109,10 +109,19 @@ func (b *AMQPCeleryBroker) StartConsumingChannel() error {
 	return nil
 }
 
-// SendCeleryMessage sends CeleryMessage to broker
+// SendCeleryMessage sends CeleryMessage to broker with default queueName
 func (b *AMQPCeleryBroker) SendCeleryMessage(message *CeleryMessage) error {
+	return b.sendMessage(message, "celery")
+}
+
+// SendCeleryMessage sends CeleryMessage to broker with defined queueName
+func (b *AMQPCeleryBroker) SendCeleryMessageWithQueue(message *CeleryMessage, queueName string) error {
+	return b.sendMessage(message, queueName)
+}
+
+// SendCeleryMessage sends CeleryMessage to broker
+func (b *AMQPCeleryBroker) sendMessage(message *CeleryMessage, queueName string) error {
 	taskMessage := message.GetTaskMessage()
-	queueName := "celery"
 	_, err := b.QueueDeclare(
 		queueName, // name
 		true,      // durable
